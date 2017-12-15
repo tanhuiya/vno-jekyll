@@ -1,0 +1,62 @@
+
+---
+layout: post
+title: OCLint 使用
+date: 2016-08-01 15:59:28.000000000 +09:00
+---
+
+最近要在持续化交付上添加一环，静态代码分析。虽然`xcode`的`Analyze` 也有这个功能，但是那个工具用起来比较麻烦，需要手动去操作。接下来就看看`OCLint `的使用吧。
+
+
+本次环境配置是在`xcode8` 环境下，`xctool` 已不再支持`xcode8`.
+
+我是用`homebrew `安装的。首先添加下载源 ，然后正式安装。
+
+```
+	brew tap oclint/formulae
+	brew install oclint
+```	
+安装`oclint`完成后需要安装`xcpretty` ，该工具可以将编译的代码产生的信息格式化输出。
+```
+	gem install xcpretty
+```
+每次编译前记得先 `clean` 一下，以下是我的命令。
+
+```
+xcodebuild clean -workspace Hospital_Doctor/Hospital_Doctor.xcworkspace -scheme Hospital_Doctor -configuration 'Debug'
+
+xcodebuild -workspace Hospital_Doctor/Hospital_Doctor.xcworkspace -scheme Hospital_Doctor -configuration 'Debug'| xcpretty --report json-compilation-database
+```	
+然后会在`build/reports` 目录下生成 `compilation_db.json` 文件，但是`oclint` 识别的是 `compile_commands.json` 文件。
+
+	cp Hospital_Doctor/build/reports/compilation_db.json compile_commands.json
+	
+然后用oclint 解析上面的文件
+```
+oclint-json-compilation-database -v -e Pods -e Carthage -e Hospital_DoctorTests -e Hospital_DoctorUITests
+```	
+	-e 参数是忽略的文件或文件夹
+	
+在这里我还在项目根目录（当前目录）配了一个` .oclint `文件，该文件中的配置在执行oclint 命令时自动加载，也可以在个人用户目录下新建这个` .oclint` 文件，即` ~/.oclint `,下面是我的配置文件。
+```
+	rule-configurations:
+	  - key: CYCLOMATIC_COMPLEXITY
+	    value: 15
+	  - key: LONG_LINE
+	    value: 300
+	  - key: TOO_MANY_PARAMETERS
+	    value: 10
+	output: oclint.html
+	report-type: html
+	max-priority-1: 0
+	max-priority-2: 1000
+	max-priority-3: 3000
+	enable-clang-static-analyzer: false
+```	
+`rule-configurations`中是一些代码的规范，这里是修改的默认的，也可以不填用默认的。oclint 导出的html 文件可以在浏览器中查看。
+
+之后我想把他集成到`fastlane `中，`fastlane` 中提供了`oclint action`，我用`xcodebuild` 先生成了json 文件，然后执行`oclint` 的动作，发现有问题，打印出来后fastlane 中具体执行的命令是如下
+```
+oclint -report-type=pmd -o=oclint_report.pmd -rc=LONG_LINE=200 -rc=LONG_METHOD=200 -max-priority-1=10 -max-priority-2=1000 -max-priority-3=2000 -p . "***"
+```	
+同样可以生成html文件，可以直接在浏览器打开查看。

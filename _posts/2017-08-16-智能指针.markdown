@@ -1,0 +1,384 @@
+---
+layout: post
+title: C++ (OC) 内存管理 & 智能指针
+date: 2017-08-16 15:59:28.000000000 +09:00
+---
+
+## 前言
+
+现在开发的项目中用到了大部分 `C++` 代码，由于 `Swift` 和 `C++` 混编不是很方便， 依然选择用 `OC` 混编， 只需要将 `.m `文件 修改为 `.mm `文件即可。
+
+`OC` 里的对象大部分都会加入自动释放池中，所以这些都不用手动释放，但是 `C++` 对象不会被加入自动释放池,必须要手动释放，否则会造成内存泄漏。
+
+` .mm `文件中可以随意的 `new CppObject()`, 但是要记得 `delete` 。当`cpp`指针被当前对象引用时，当前对象的` dealloc` 方法里要记得释放该资源。
+
+借助这个机会，重温一下 `C++`的内存管理 以及 智能指针的使用。
+
+## 普通指针
+#### 单独的对象
+> 
+> ```
+> ComparePooling* mPool = new ComparePooling();
+> // 释放mPool
+> delete mPool;
+> ```
+> 
+> 这是最简单的。。。
+
+#### 释放 `C++` 数组
+> 
+> ```
+> TestA * aList = new TestA[10];
+> // 释放数组对象
+> delete []aList;
+> ```
+
+####  释放` vector (stack)`对象
+
+> ```
+> for(vector<MidiPart *>::iterator it = this->mParts.begin(); it != this->mParts.end(); it ++){
+>     if (NULL != *it) {
+>         delete *it;
+>         *it = NULL;
+>     }
+> }
+> this->mParts.clear();
+> ```
+
+####  现在考虑下面情况
+
+> ```
+> void func()
+> {
+>     int *p = new int(5);
+> 	  do something...
+>     throw "exception occured";
+>     delete p;
+> }
+> int main(){
+>     try {
+>         func();
+>     } catch (const char* str) {
+>         std::cout<<str <<std:endl;
+>     }
+> }
+> ```
+> 
+> `func `函数 中 可能会触发异常，是函数提前退出，这样有可能资源不会得到释放。有效使用 智能指针 可以解决这一问题。
+## 智能指针
+
+智能指针的原理就是将你 `new` 出来的一个指针`ptr`传给他，它返回一个栈上的对象 `A` 给你。这个对象保存着你传入的 `ptr `。 当 `A` 离开作用域（无论是命名空间还是函数，还是抛出异常提前退出）， A 的析构函数都会被调用，析构函数内部会 释放` ptr `指针。所以使用智能指针会为资源管理提供方便。 
+
+### `auto_ptr`
+
+```
+class ObjectA {
+    public:
+    ~ObjectA(){
+        std::cout<<"TestA did release"<<std::endl;
+    }
+    ObjectA(int age): mAge(age) {}
+    int mAge;
+};
+int main(int argc, const char * argv[]) {
+    // insert code here...
+    std::auto_ptr<ObjectA> ptr_a( new ObjectA(20) );
+    std::cout<< ptr_a->mAge << std::endl;
+    return 0;
+}
+```
+`outPut `如下
+```
+20
+TestA did release
+```
+
+若要手动释放可以调用 `reset()` 函数
+
+```
+int main(int argc, const char * argv[]) {
+    std::auto_ptr<ObjectA> ptr_a( new ObjectA(20) );
+	  ptr_a.reset();
+    std::cout<< ptr_a->mAge << std::endl; // Crash !!!
+    return 0;
+}
+```
+
+对象已被释放，再次访问就会变成野指针，程序会崩溃。
+当`reset()` 方法传入参数时会替换掉内部保持的指针
+
+```
+int main(int argc, const char * argv[]) {
+    std::auto_ptr<ObjectA> ptr_a( new ObjectA(20) );
+	  ptr_a.reset(new ObjectA(40));
+    std::cout<< ptr_a->mAge << std::endl; // outPut : 40
+    return 0;
+}
+```
+
+另外 auto_ptr 不能指向一个数组对象，会直接`crash`。因为它内部 使用的 `delete ptr` , 而不是 `delete[] ptr `。
+
+### `shared_ptr`
+
+`shared_ptr` 有一种共享所有权的概念，n 个指针可以同时指向一个对象，这个对象的引用计数就为 n，知道最后一个对象离开作用域时才会释放该对象 。所以当我第一次接触 `iOS` 的 `ARC`  机制中的强引用(`strong`)时，感觉如此熟悉。
+
+```
+int main(){
+    {
+        std::cout << "constructor with no managed object\n";
+        std::shared_ptr<ObjectA> sh1;
+    }
+    {
+        std::cout << "constructor with object\n";
+        std::shared_ptr<ObjectA> sh2(new ObjectA);
+        std::shared_ptr<ObjectA> sh3(sh2);
+        std::cout << sh2.use_count() << '\n';
+        std::cout << sh3.use_count() << '\n';
+    }
+    {
+        std::cout << "constructor with object and deleter\n";
+        std::shared_ptr<ObjectA> sh5(new ObjectA, [](auto p) {
+            std::cout << "Call delete from lambda...\n";
+            delete p;
+        });
+    }
+}
+```
+
+`outPut` 如下
+
+```
+constructor with no managed object
+constructor with object
+2
+2
+ObjectA did release
+constructor with object and deleter
+Call delete from lambda...
+ObjectA did release
+```
+
+`shared_ptr` 的构造函数 可以用一个`deleter` (`lambada` 表达式) 作为参数
+
+```
+template< class Y, class Deleter > shared_ptr( Y* ptr, Deleter d );
+std::shared_ptr<ObjectA> sh5(new ObjectA, [](auto p) {
+            std::cout << "Call delete from lambda...\n";
+            delete p;
+        });
+```
+
+那么我们想传入一个数组对象时就可以如下操作
+
+```
+std::shared_ptr<ObjectA> sh5(new ObjectA, [](auto p) {
+            delete[] p;
+        });
+```
+
+### 循环引用
+
+将`shared_ptr` 随意强引用给其他对象，可能会造成循环引用
+
+```
+#include <iostream>
+class ObjectB;
+class ObjectA {
+    public:
+    ~ObjectA(){
+        std::cout<<"ObjectA did release"<<std::endl;
+    }
+    ObjectA() {}
+    std::shared_ptr<ObjectB> mPtrB;
+};
+class ObjectB {
+public:
+    ~ObjectB(){
+        std::cout<<"ObjectB did release"<<std::endl;
+    }
+    ObjectB() {}
+    std::shared_ptr<ObjectA> mPtrA;
+};
+int main(){
+    {
+        std::shared_ptr<ObjectA> ptr_a (new ObjectA);
+        std::shared_ptr<ObjectB> ptr_b (new ObjectB);
+        ptr_a->mPtrB = ptr_b;
+        ptr_b->mPtrA = ptr_a;
+    }
+}
+```
+
+上面的 `ObjectA`  和 `ObjectB` 都不会被释放.  
+
+` ObjectA -> ptr_b -> ObjectB -> ptr_a -> ObjectA `
+
+造成了循环引用，所以为了解决这一问题， C++ 提供了 弱指针 如下。
+
+### `weak_ptr`
+
+`weak_ptr` 是对源对象的弱引用，`weak_ptr` 指向该对象是，该对象的 引用计数不会加一。
+`weak_ptr`  的创建一般用一个`shared_ptr` 对象 作为参数。
+
+```
+void main( ){
+ shared_ptr<ObjectA> sptr( new ObjectA );
+ weak_ptr<ObjectA> wptr( sptr );
+ weak_ptr<ObjectA> wptr1 = wptr;
+}
+```
+
+当 `shared_ptr` 离开了自己的定义域后，`shared_ptr` 被释放。`weak_ptr` 指向的对象也就释放了，`weak_ptr` 对象的引用计数为 0。
+
+```
+void main(){
+    std::weak_ptr<ObjectA> w_ptr;
+    {
+        std::shared_ptr<ObjectA> ptr(new ObjectA);
+        w_ptr = ptr;
+        std::cout << "w_ptr.use_count() inside scope: " << w_ptr.use_count() << '\n';
+    }
+    std::cout << "w_ptr.use_count() out of scope: " << w_ptr.use_count() << '\n';
+    std::cout << "w_ptr.expired() out of scope: " << std::boolalpha << w_ptr.expired() << '\n';
+}
+```
+
+`outPut` 如下
+
+```
+w_ptr.use_count() inside scope: 1
+ObjectA did release
+w_ptr.use_count() out of scope: 0
+w_ptr.expired() out of scope: true
+```
+
+### `unique_ptr`
+
+`unique_ptr` 和 `auto_ptr` 类似。在任何时间点，对象只能被一个 `unique_ptr` 所持有。`unique_ptr` 不支持普通的拷贝和赋值操作。
+
+```
+void main() 
+{
+    // 创建一个unique_ptr实例
+    unique_ptr<int> pInt(new int(5));
+    unique_ptr<int> pInt2(pInt);    // 报错
+    unique_ptr<int> pInt3 = pInt;   // 报错
+}
+```
+
+`unique_ptr`虽然没有支持普通的拷贝和赋值操作，但却提供了一种移动机制来将指针的所有权从一个`unique_ptr`转移给另一个`unique_ptr`。如果需要转移所有权，可以使用`std::move()`函数。
+
+```
+void main() 
+{
+    unique_ptr<int> pInt(new int(5));
+    unique_ptr<int> pInt2 = std::move(pInt);    // 转移所有权
+    //cout << *pInt << endl; // 出错，pInt为空
+    cout << *pInt2 << endl;
+    unique_ptr<int> pInt3(std::move(pInt2));
+}
+```
+
+下面看个🌰子
+
+```
+#include <iostream>
+#include <vector>
+#include <memory>
+#include <cstdio>
+#include <cassert>
+#include <functional>
+ 
+struct B {
+  virtual void bar() { std::cout << "B::bar\n"; }
+  virtual ~B() = default;
+};
+struct D : B
+{
+    D() { std::cout << "D::D\n";  }
+    ~D() { std::cout << "D::~D\n";  }
+    void bar() override { std::cout << "D::bar\n";  }
+};
+ 
+// a function consuming a unique_ptr can take it by value or by rvalue reference
+std::unique_ptr<D> pass_through(std::unique_ptr<D> p)
+{
+    p->bar();
+    return p;
+}
+ 
+int main()
+{
+  std::cout << "unique ownership semantics demo\n";
+  {
+      auto p = std::make_unique<D>(); // p is a unique_ptr that owns a D
+      auto q = pass_through(std::move(p)); 
+      assert(!p); // now p owns nothing and holds a null pointer
+      q->bar();   // and q owns the D object
+  } // ~D called here
+ 
+  std::cout << "Runtime polymorphism demo\n";
+  {
+    std::unique_ptr<B> p = std::make_unique<D>(); // p is a unique_ptr that owns a D
+                                                  // as a pointer to base
+    p->bar(); // virtual dispatch
+ 
+    std::vector<std::unique_ptr<B>> v;  // unique_ptr can be stored in a container
+    v.push_back(std::make_unique<D>());
+    v.push_back(std::move(p));
+    v.emplace_back(new D);
+    for(auto& p: v) p->bar(); // virtual dispatch
+  } // ~D called 3 times
+ 
+  std::cout << "Custom lambda-expression deleter demo\n";
+  {
+    std::unique_ptr<D, std::function<void(D*)>> p(new D, [](D* ptr)
+        {
+            std::cout << "destroying from a custom deleter...\n";
+            delete ptr;
+        });  // p owns D
+    p->bar();
+  } // the lambda above is called and D is destroyed
+ 
+  std::cout << "Array form of unique_ptr demo\n";
+  {
+      std::unique_ptr<D[]> p{new D[3]};
+  } // calls ~D 3 times
+}
+```
+
+Output:
+
+```
+unique ownership semantics demo
+D::D
+D::bar
+D::bar
+D::~D
+Runtime polymorphism demo
+D::D
+D::bar
+D::D
+D::D
+D::bar
+D::bar
+D::bar
+D::~D
+D::~D
+D::~D
+Custom lambda-expression deleter demo
+D::D
+D::bar
+destroying from a custom deleter...
+D::~D
+Array form of unique_ptr demo
+D::D
+D::D
+D::D
+D::~D
+D::~D
+D::~D
+```
+
+总结
+实际`coding`中，还是`shared_ptr` 使用的多。代码中避免不了将对象赋值给其他对象。

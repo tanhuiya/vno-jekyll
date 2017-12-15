@@ -1,0 +1,111 @@
+---
+layout: post
+title: CentOS 下搭建 shadowsocks 服务
+date: 2017-10-20 15:32:24.000000000 +09:00
+---
+
+之前买的ss账号都不能用了，决定自己买一个海外服务器搭建ss服务。
+
+### 1. 选择服务器
+
+我这里服务器选的 [DigitalOcean](https://www.digitalocean.com) ,选它不是因为他家速度快，价格便宜，而是因为注册送了我 10 刀，可以免费先用两个月。配置是最低配的啦，完全足够用了。系统用的 centos6.9 .创建好vps (Droplet)后，root用户的密码会发到你邮箱你。
+
+### 2. 登录vps
+
+服务器选好了以后，登录到你的服务器。
+
+Linux／Unix 下面可以直接用ssh从终端登录
+
+```
+ssh root@you_real_ip
+```
+
+当然一般的网站都可以直接弹出弹窗让你登陆。
+
+### 3. 搭建shadowsocks
+
+命令行依次输入以下命令：
+
+```
+yum install epel-release
+yum update
+yum install python-setuptools m2crypto supervisor
+easy_install pip
+pip install shadowsocks
+```
+
+##### 3.1 编辑配置文件
+
+编辑 shadowsocks.json 文件， 这个文件你可以放在任何地方,这里以  `/etc/shadowsocks.json`为例.
+
+```
+vi /etc/shadowsocks.json
+```
+
+填写配置如下
+
+```
+{
+  "server":"0.0.0.0",
+  "server_port":修改成你的端口号,
+  "local_port":1080,
+  "password":"修改成你的密码",
+  "timeout":600,
+  "method":"aes-256-cfb"
+}
+
+// 多个端口配置如下
+
+{
+  "server":"0.0.0.0",
+  "port_password":{
+    "8388": "password1",
+    "8389": "password2",
+    "8390": "password3"
+  },
+  "local_port":1080,
+  "timeout":600,
+  "method":"aes-256-cfb"
+}
+
+```
+
+##### 3.2 开启服务
+
+命令如下
+
+```
+ssserver -c /etc/shadowsocks.json  -d start // 后台运行
+
+ssserver -c /etc/shadowsocks.json  // 前台运行
+```
+
+### 4. 设置开机启动
+
+##### 4.1 前面已经安装了supervisor . 编辑配置文件 `vi /etc/supervisord.conf`
+
+`shift + g`  移动到最下面 添加如下:
+
+```
+[program:shadowsocks]
+command=ssserver -c /etc/shadowsocks.json
+autostart=true
+autorestart=true
+user=root
+```
+
+##### 4.2  开启自启动服务
+
+编辑 `/etc/rc.local`  文件
+
+在最后添加如下
+
+```
+service supervisord start
+```
+
+保存退出后可以测试一下上面这条命令。
+
+OK 的话就 输入 `reboot` 重启。
+
+再次登陆服务器，输入`ps aux | grep ssserver` 应该发现 ssserver 服务已经启动了.

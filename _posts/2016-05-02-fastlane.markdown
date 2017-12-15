@@ -1,0 +1,65 @@
+---
+layout: post
+title:  Fastlane 打包
+date: 2016-05-02 16:59:28.000000000 +09:00
+---
+
+* [Fastlane 使用](http://www.jianshu.com/p/5439ca56a2c4)
+
+使用 `Cert` 和 `Sigh`
+
+* [**cert**](https://docs.fastlane.tools/actions/cert/) 需要你有一个可用的本地证书
+* [**sigh**](https://fastlane.tools/sigh) 需要你有一个可用的本地`modbile-provisionfile`
+
+`cert` 和 `Sigh` 可以使用你本地的证书和`provisionFile` 给 `App` 打包
+在 `FastFile `中添加
+
+```
+lane :laneName do
+  get_certificates (
+  	development: false , # distribute 环境
+  	username: "xxxx@xxx.com" # your apple id account
+  )           
+  get_provisioning_profile   # invokes sigh
+  # any thing else #
+end
+```
+
+
+`xcode` 工程设置，这里可以设置 `Automatically manage signing` ，也可以选择手动选择证书，但是都要设置成没有`error` 才行。
+￼![自动设置](http://upload-images.jianshu.io/upload_images/1453111-f7e4f1fdb82792aa.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+![手动设置](http://upload-images.jianshu.io/upload_images/1453111-99fdda40230484f4.png?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+使用 `Match`
+
+[match](https://docs.fastlane.tools/actions/match/) 是将你的证书放在一个 **私有** 的`git` 仓库里，你只需要建一个空的仓库，`match` 会帮你设置好一切.
+
+初始化 `match` 
+
+```
+fastlane match init
+
+```
+
+跟着他的提示输入`git `地址，以及加密的密码. 
+![初始化](http://upload-images.jianshu.io/upload_images/1453111-cb2d1c13f3977898.gif?imageMogr2/auto-orient/strip%7CimageView2/2/w/1240)
+
+修改` fastlane/Matchfile `内容
+
+```
+git_url "https://github.com/fastlane/fastlane/tree/master/certificates"
+
+app_identifier "tools.fastlane.app" # your App bundle ID 
+username "user@fastlane.tools" # your AppleID
+```
+
+打包正式包时执行 `fastlane match appstore`, 如果你是第一次运行的话，由于的你仓库时空的，`match` 会试图帮你生成一个 发布证书 和 开发证书。 所以你要确保的账号的证书数量没有达到上限，否则你要去 `revoke` 一下以前的证书。
+打包前，运行命令如下
+
+```
+lane :laneName do
+  match appstore
+  # any thing else #
+end
+```

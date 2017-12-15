@@ -1,0 +1,103 @@
+---
+layout: post
+title: C++ 调用 OC
+date: 2017-08-16 15:32:24.000000000 +09:00
+---
+
+`iOS` 开发中，经常会用`OC` 与` C++ `混合开发。本篇文章就介绍一下 `OC ／ C++ `的相互调用.
+
+#### OC => C++
+
+* 把调用方的文件修改:
+ `.m => .mm `
+* 引用`C++`头文件:
+ `#include "xxx.h" or #import “xxx.h” `
+* 创建对象
+`CppObject * cppObj = new CppObject();`
+* 释放对象
+`delete  cppObj;`
+
+`OC `调用 `C/C++`  就这么简单。注意的是，要记得释放 `new` 出来的对象，要不然会**内存泄漏**。
+
+#### C++ => OC
+
+`C++` 调用`OC` 就不是那么简单了，这里我们利用一个` C` 函数做桥，将`OC` 对象转化为 `void * ` 类型的指针传入。
+
+`ObjectOC` 类如下：
+
+```
+//  ObjectOC.h
+#import "ObjectInterface.h"
+@interface ObjectOC : NSObject
+-(void)doSomething:(void*)parameter;
+@property interface call;
+@end
+--------
+//  ObjectOC.m
+void OcObjectDoSomethingWith(void* caller, void* parameter){
+    [(__bridge id)caller doSomething:parameter];
+}
+@implementation ObjectOC
+-(instancetype)init{
+    if ([super init]) {
+        _call = OcObjectDoSomethingWith;
+    }
+    return self;
+}
+-(void)doSomething:(void *)parameter{
+    NSLog(@"%@",parameter);
+}
+@end
+
+```
+
+
+`Cpp` 文件如下：
+
+```
+// ObjectCpp.h
+#include <stdio.h>
+#include <iostream>
+#include "ObjectInterface.h"
+
+class ObjectCpp {
+    void* myOC;
+    interface myCall;
+public:
+    ObjectCpp();
+    ObjectCpp(void* oc ,interface call);
+    ~ObjectCpp();
+    void function(void* parameter);
+};
+
+// ObjectCpp.cpp
+
+#include "ObjectCpp.h"
+ObjectCpp::ObjectCpp(void* oc, interface call) {
+    this->myOC = oc;
+    this->myCall = call;
+}
+void ObjectCpp::function(void* parameter) {
+    this->myCall(this->myOC,parameter);
+}
+ObjectCpp::~ObjectCpp(){
+    std::cout<< "CPP Object released"<< std::endl;
+}
+```
+
+`OC` 对象有个 `call `属性，是个C函数，且这个函数定义在`OC `文件中（`OcObjectDoSomethingWith`）.
+
+```
+ObjectOC * oc = [[ObjectOC alloc]init];
+void* point = (__bridge void*)oc;
+ObjectCpp* cpp = new ObjectCpp(point,oc.call);
+cpp->function((__bridge void*)@"123412");
+delete cpp;
+```
+
+`point` 和 `oc`对象的`C`函数做为 `ObjectCpp`  的构造函数 的参数.
+`cpp-> function()` 方法里，调用了定义好的 `C` 函数，将OC对象和 `parameter` 传入。方法就触发到了`OC `的文件里。
+
+这样就实现了 `C++` 调用` OC` 的方法。
+
+[Demo 地址](https://github.com/tanhuiya/TrickCpp2OC)
